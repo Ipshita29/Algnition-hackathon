@@ -53,17 +53,25 @@ def _call_groq(prompt, json_mode=False, temperature=0.3):
 
 
 def get_disagreement_narrative(
-    channel_name, horizon_days, prophet, xgb, ridge, disagreement_pct, uncertainty_level,
-    current_month, historical_roas,
+    channel_name, horizon_days, prophet_p50, xgb_p50, ridge_p50, blended_p10, blended_p50, blended_p90,
+    disagreement_pct, uncertainty_level, current_month, historical_roas,
 ):
-    """Role A: explain in 2-3 sentences why the three models disagree."""
+    """Role A: explain in 2-3 sentences why the three models disagree.
+
+    prophet_p50 may be None when Prophet was skipped for a short series -
+    the disagreement score itself (see tribunal.py) is computed only from
+    whichever models actually ran for that campaign.
+    """
+    prophet_line = f"${prophet_p50:.2f}" if prophet_p50 is not None else "not available (series too short to fit)"
     prompt = f"""You are an expert digital marketing analyst reviewing a revenue forecast for an e-commerce client.
 
-Three statistical models (Prophet, XGBoost, and Ridge regression) have produced the following forecasts for the next {horizon_days} days for {channel_name}:
+Three statistical models (Prophet, XGBoost, and Ridge regression) have produced the following P50 (expected case) forecasts for the next {horizon_days} days for {channel_name}:
 
-- Prophet P50: ${prophet['p50']:.2f} (P10: ${prophet['p10']:.2f}, P90: ${prophet['p90']:.2f})
-- XGBoost P50: ${xgb['p50']:.2f} (P10: ${xgb['p10']:.2f}, P90: ${xgb['p90']:.2f})
-- Ridge P50: ${ridge['p50']:.2f} (P10: ${ridge['p10']:.2f}, P90: ${ridge['p90']:.2f})
+- Prophet P50: {prophet_line}
+- XGBoost P50: ${xgb_p50:.2f}
+- Ridge P50: ${ridge_p50:.2f}
+
+The blended ensemble forecast is P10: ${blended_p10:.2f}, P50: ${blended_p50:.2f}, P90: ${blended_p90:.2f}.
 
 Model disagreement score: {disagreement_pct:.1f}% ({uncertainty_level} uncertainty)
 

@@ -42,17 +42,21 @@ async function callGroq(prompt, { jsonMode = false, temperature = 0.3 } = {}) {
 }
 
 // Role A: explain in 2-3 sentences why the three models disagree.
+// prophetP50 may be null when Prophet was skipped for a short series.
 export async function getDisagreementNarrative({
-  channelName, horizonDays, prophet, xgb, ridge, disagreementPct, uncertaintyLevel,
-  currentMonth, historicalRoas,
+  channelName, horizonDays, prophetP50, xgbP50, ridgeP50, blendedP10, blendedP50, blendedP90,
+  disagreementPct, uncertaintyLevel, currentMonth, historicalRoas,
 }) {
+  const prophetLine = prophetP50 != null ? `$${prophetP50.toFixed(2)}` : 'not available (series too short to fit)'
   const prompt = `You are an expert digital marketing analyst reviewing a revenue forecast for an e-commerce client.
 
-Three statistical models (Prophet, XGBoost, and Ridge regression) have produced the following forecasts for the next ${horizonDays} days for ${channelName}:
+Three statistical models (Prophet, XGBoost, and Ridge regression) have produced the following P50 (expected case) forecasts for the next ${horizonDays} days for ${channelName}:
 
-- Prophet P50: $${prophet.p50.toFixed(2)} (P10: $${prophet.p10.toFixed(2)}, P90: $${prophet.p90.toFixed(2)})
-- XGBoost P50: $${xgb.p50.toFixed(2)} (P10: $${xgb.p10.toFixed(2)}, P90: $${xgb.p90.toFixed(2)})
-- Ridge P50: $${ridge.p50.toFixed(2)} (P10: $${ridge.p10.toFixed(2)}, P90: $${ridge.p90.toFixed(2)})
+- Prophet P50: ${prophetLine}
+- XGBoost P50: $${xgbP50.toFixed(2)}
+- Ridge P50: $${ridgeP50.toFixed(2)}
+
+The blended ensemble forecast is P10: $${blendedP10.toFixed(2)}, P50: $${blendedP50.toFixed(2)}, P90: $${blendedP90.toFixed(2)}.
 
 Model disagreement score: ${disagreementPct.toFixed(1)}% (${uncertaintyLevel} uncertainty)
 
