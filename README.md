@@ -50,9 +50,9 @@ prophet_p50, xgb_p50, ridge_p50   (appended - used by the War Room UI, see docs/
 
 ## Input CSV format
 
-Place CSVs in `DATA_DIR` with filenames containing a channel keyword — `google`, `meta`/`facebook`, or `bing`/`microsoft`/`ms` — anywhere in the name (not a fixed prefix; this covers both the bundled samples and the real challenge dataset's filenames).
+`data/` ships the real challenge dataset (`google_ads_campaign_stats.csv`, `bing_campaign_stats.csv`, `meta_ads_campaign_stats.csv`) — the pipeline is built against these actual raw exports, not a guessed clean schema. Place CSVs in `DATA_DIR` with filenames containing a channel keyword — `google`, `meta`/`facebook`, or `bing`/`microsoft`/`ms` — anywhere in the name (not a fixed prefix).
 
-Required columns: `date`, `campaign_name`, `spend`, `revenue`, `impressions`, `clicks`, `conversions`. `campaign_type` is optional — inferred from the campaign name if absent. Common alternate column names (e.g. `Cost` for `spend`) are normalized automatically; see `docs/ASSUMPTIONS.md`.
+Google, Bing, and Meta each export a genuinely different raw schema (different column names, Google's spend in micros, Meta's `conversion` column actually being revenue) — `generate_features.py` detects and maps each one explicitly. A generic alias-based fallback also exists for any other CSV shape. Full column-by-column mapping and every quirk found in the real data: `docs/SCHEMA_ANALYSIS.md`. Modeling/product tradeoffs made along the way: `docs/ASSUMPTIONS.md`.
 
 ## Train (one-time)
 

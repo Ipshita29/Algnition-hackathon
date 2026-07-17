@@ -24,8 +24,11 @@ def main():
     # Never leave the pickle untested - confirm it loads back cleanly before reporting success.
     ForecastingTribunal.load(args.out)
 
+    # campaign_name alone undercounts real campaigns: some names (e.g.
+    # "Pmax_NTM_Campaign_01") legitimately exist in more than one channel.
+    campaign_count = df.groupby(["channel", "campaign_name"]).ngroups
     print(
-        f"Trained on {len(df)} rows across {df['campaign_name'].nunique()} campaigns. "
+        f"Trained on {len(df)} rows across {campaign_count} campaigns. "
         f"Saved and verified pickle at {args.out}"
     )
 

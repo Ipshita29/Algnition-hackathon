@@ -217,16 +217,24 @@ class ForecastingTribunal:
 
     @staticmethod
     def save(tribunal, path):
+        # gzip'd transparently - a full 136-campaign tribunal (200-tree
+        # XGBoost quantile model per campaign) pickles to ~108MB raw, over
+        # GitHub's 100MB file limit; gzip cuts that to ~22MB with zero
+        # model-quality tradeoff (same n_estimators). Still just a normal
+        # file at `path` (e.g. pickle/model.pkl) - gzip.open handles the
+        # compression invisibly to callers.
+        import gzip
         import os
         import pickle
 
         os.makedirs(os.path.dirname(path) if os.path.dirname(path) else ".", exist_ok=True)
-        with open(path, "wb") as f:
+        with gzip.open(path, "wb") as f:
             pickle.dump(tribunal, f)
 
     @staticmethod
     def load(path):
+        import gzip
         import pickle
 
-        with open(path, "rb") as f:
+        with gzip.open(path, "rb") as f:
             return pickle.load(f)
