@@ -2,6 +2,8 @@
 ensemble, blends their P10/P50/P90 ranges with campaign-type weights, and
 scores how much the three models disagree.
 """
+import sys
+
 import numpy as np
 
 from .prophet_model import ProphetModel
@@ -33,6 +35,55 @@ def _uncertainty_level(disagreement_pct):
     if disagreement_pct < 15:
         return "MODERATE"
     return "HIGH"
+
+
+# Placeholder disagreement_pct for fallback rows (see _naive_fallback below) -
+# there's no model agreement to measure since no model was trained on this
+# campaign, so this is a fixed "treat with caution" value, not a computed one.
+FALLBACK_DISAGREEMENT_PCT = 25.0
+
+
+def _naive_fallback(group, channel, campaign_name, campaign_type, periods, daily_spend):
+    """Used when a (channel, campaign_name) shows up in predict-time data but
+    wasn't present in the training data at all - e.g. a new campaign
+    launched after the pickle was trained. The tribunal never retrains at
+    predict time (per the submission guide), so there's no model to fall
+    back on; this produces a same-shape output row instead of silently
+    dropping the campaign from predictions.csv, using a simple trailing
+    28-day average daily revenue rate scaled by period length with a wide
+    +/-30% band and HIGH uncertainty to flag it as not model-based.
+    """
+    daily_revenue = group["revenue"].tail(28).mean()
+
+    campaign_results = {}
+    for period_days in periods:
+        base = daily_revenue * period_days
+        revenue = {"p10": base * 0.7, "p50": base, "p90": base * 1.3}
+
+        projected_spend = daily_spend * period_days
+        roas = {
+            level: (revenue[level] / projected_spend if projected_spend > 0 else 0.0)
+            for level in ("p10", "p50", "p90")
+        }
+
+        campaign_results[period_days] = {
+            "channel": channel,
+            "campaign_type": campaign_type,
+            "campaign_name": campaign_name,
+            "period_days": period_days,
+            "revenue_p10": revenue["p10"],
+            "revenue_p50": revenue["p50"],
+            "revenue_p90": revenue["p90"],
+            "roas_p10": roas["p10"],
+            "roas_p50": roas["p50"],
+            "roas_p90": roas["p90"],
+            "disagreement_pct": FALLBACK_DISAGREEMENT_PCT,
+            "uncertainty_level": "HIGH",
+            "prophet_p50": None,
+            "xgb_p50": None,
+            "ridge_p50": None,
+        }
+    return campaign_results
 
 
 class ForecastingTribunal:
@@ -143,6 +194,24 @@ class ForecastingTribunal:
                     "ridge_p50": model_predictions["ridge"][period_days]["p50"],
                 }
             results[key] = campaign_results
+
+        # Campaigns present in the predict-time data but never seen during
+        # training (e.g. a new campaign in held-out test data) still get a
+        # row - via the naive fallback above - instead of silently vanishing
+        # from predictions.csv.
+        seen_keys = set(zip(df["channel"], df["campaign_name"]))
+        for key in seen_keys - set(self.campaign_info.keys()):
+            channel, campaign_name = key
+            group = df[(df["channel"] == channel) & (df["campaign_name"] == campaign_name)].sort_values("date")
+            campaign_type = group["campaign_type"].iloc[0]
+            override = future_spend_overrides.get(key)
+            daily_spend = override if override is not None else group["spend"].tail(28).mean()
+
+            print(
+                f"WARNING: {key} was not in the trained model - using naive fallback prediction",
+                file=sys.stderr,
+            )
+            results[key] = _naive_fallback(group, channel, campaign_name, campaign_type, periods, daily_spend)
 
         return results
 
