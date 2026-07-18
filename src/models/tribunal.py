@@ -14,6 +14,14 @@ from .xgb_model import FEATURE_COLUMNS, XGBModel
 # and is dropped for that campaign - the other two models still cover it.
 MIN_PROPHET_ROWS = 60
 
+# Below this many daily rows, even XGBoost/Ridge aren't fit at all - there
+# isn't enough data to estimate three quantiles or a stable linear
+# coefficient from (verified against the real dataset: 9 campaigns have
+# under 10 rows, two of them exactly 1). These campaigns are skipped
+# entirely in fit() and picked up by predict()'s naive-fallback path
+# instead, the same path used for campaigns unseen at training time.
+MIN_TRAINING_ROWS = 10
+
 ENSEMBLE_WEIGHTS = {
     "shopping": {"prophet": 0.5, "xgb": 0.3, "ridge": 0.2},
     "brand": {"prophet": 0.5, "xgb": 0.3, "ridge": 0.2},
@@ -44,14 +52,16 @@ FALLBACK_DISAGREEMENT_PCT = 25.0
 
 
 def _naive_fallback(group, channel, campaign_name, campaign_type, periods, daily_spend):
-    """Used when a (channel, campaign_name) shows up in predict-time data but
-    wasn't present in the training data at all - e.g. a new campaign
-    launched after the pickle was trained. The tribunal never retrains at
-    predict time (per the submission guide), so there's no model to fall
-    back on; this produces a same-shape output row instead of silently
-    dropping the campaign from predictions.csv, using a simple trailing
-    28-day average daily revenue rate scaled by period length with a wide
-    +/-30% band and HIGH uncertainty to flag it as not model-based.
+    """Used for a (channel, campaign_name) with no fitted models to call:
+    either it wasn't present in the training data at all (e.g. a new
+    campaign launched after the pickle was trained - the tribunal never
+    retrains at predict time, per the submission guide), or it was too
+    sparse to fit meaningfully (under MIN_TRAINING_ROWS rows). Produces a
+    same-shape output row instead of silently dropping the campaign from
+    predictions.csv, or dressing up a fit on a handful of rows as a real
+    model, using a simple trailing 28-day average daily revenue rate scaled
+    by period length with a wide +/-30% band and HIGH uncertainty to flag
+    it as not model-based.
     """
     daily_revenue = group["revenue"].tail(28).mean()
 
@@ -101,9 +111,18 @@ class ForecastingTribunal:
         self.ensemble_weights = ENSEMBLE_WEIGHTS
 
     def fit(self, df):
+        skipped = []
         for (channel, campaign_name), group in df.groupby(["channel", "campaign_name"], sort=False):
             group = group.sort_values("date")
             key = (channel, campaign_name)
+
+            if len(group) < MIN_TRAINING_ROWS:
+                # Not enough rows to fit a meaningful quantile regression or
+                # linear model - leave it out of campaign_info entirely so
+                # predict()'s naive-fallback path (below) picks it up.
+                skipped.append(key)
+                continue
+
             self.campaign_info[key] = {
                 "channel": channel,
                 "campaign_type": group["campaign_type"].iloc[0],
@@ -117,6 +136,13 @@ class ForecastingTribunal:
             if len(group) >= MIN_PROPHET_ROWS:
                 series = group.rename(columns={"date": "ds", "revenue": "y"})[["ds", "y", "spend"]]
                 self.prophet_models[key] = ProphetModel().fit(series)
+
+        if skipped:
+            print(
+                f"Skipped {len(skipped)} campaign(s) with fewer than {MIN_TRAINING_ROWS} rows "
+                f"(will use the naive fallback at predict time): {skipped}",
+                file=sys.stderr,
+            )
         return self
 
     def predict(self, df, periods=(30, 60, 90), future_spend_overrides=None):

@@ -27,8 +27,11 @@ def main():
     # campaign_name alone undercounts real campaigns: some names (e.g.
     # "Pmax_NTM_Campaign_01") legitimately exist in more than one channel.
     campaign_count = df.groupby(["channel", "campaign_name"]).ngroups
+    modeled_count = len(tribunal.campaign_info)
     print(
-        f"Trained on {len(df)} rows across {campaign_count} campaigns. "
+        f"Trained on {len(df)} rows across {campaign_count} campaigns "
+        f"({modeled_count} fitted with models, {campaign_count - modeled_count} too sparse - "
+        "will use the naive fallback at predict time). "
         f"Saved and verified pickle at {args.out}"
     )
 
