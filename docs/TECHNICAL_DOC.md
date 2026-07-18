@@ -33,6 +33,24 @@ Fixed weights per campaign-type bucket (Shopping/Brand: Prophet 0.5/XGBoost 0.3/
 - **XGBoost**: native multi-quantile regression (`reg:quantileerror`, `quantile_alpha=[0.1, 0.5, 0.9]`), one model per campaign predicting all three quantiles directly for a representative future day, then scaled by period length. Predicted quantiles are sorted before use as a safety net against quantile crossing (a known non-guarantee of this objective).
 - **Ridge**: point forecast via a `StandardScaler` + `Ridge(alpha=1.0)` pipeline, then residual bootstrap — 1000 draws from the training-residual distribution added to the point forecast, scaled by period length, reduced to P10/P50/P90.
 
+## Validated accuracy (backtest)
+
+Every other check in this repo verifies *internal consistency* (no NaNs, P10≤P50≤P90, right shape/columns) - none of it verifies the forecasts are actually *accurate*. `src/backtest.py` closes that gap: it holds out the last 30 days of the real dataset, fits a fresh tribunal on everything before that cutoff, forecasts 30 days ahead, and compares against what actually happened.
+
+**Results** (`python src/backtest.py --data-dir ./data --holdout-days 30`, run 2026-07-18):
+
+| Metric | Tribunal | Naive baseline (trailing 28-day rate) |
+|---|---|---|
+| Mean absolute error | $4,085.67 | $3,373.06 |
+| Median absolute error | $2,027.06 | $1,451.02 |
+| P10-P90 empirical coverage | 70.4% | n/a |
+
+Only 27 of 136 campaigns had activity in *both* the training window and the held-out window (most campaigns in this dataset had already ended before the last 30 days), so this is evaluated on a small sample from a single 30-day window - not a robust, repeated backtest.
+
+**Honest reading: on this holdout, the tribunal does not clearly beat a naive "assume revenue continues at its trailing rate" baseline**, on either mean or median absolute error. Checked this isn't one outlier skewing the mean - it isn't; the tribunal loses on the more outlier-resistant median too. Breaking error down by `uncertainty_level`, HIGH-uncertainty campaigns did have the largest errors (as they should - that's the disagreement score doing its job), but MODERATE campaigns had *lower* error than LOW ones, which isn't the clean monotonic LOW<MODERATE<HIGH ordering a well-calibrated uncertainty score would ideally produce - plausibly just noise from the small sample (9 campaigns per bucket on average), but not confirmed either way.
+
+**Why this matters and what it doesn't mean:** it does not mean the pipeline is broken - every model fit, blend, and range is behaving exactly as designed. It means the *specific accuracy claim* "this ensemble outperforms a trivial baseline" is not supported by the one backtest run so far. A single 30-day window at the tail end of the dataset can't distinguish "the models are genuinely miscalibrated" from "this particular window happened to favor flat extrapolation" (e.g. campaigns pacing down before ending, a slow month) - that requires rolling-origin backtesting across many cutoff dates, which wasn't done given the time available. Reporting this now, honestly, rather than only reporting the flattering internal-consistency checks.
+
 ## AI integration strategy
 
 See `docs/ARCHITECTURE.md`'s "LLM integration workflow" section for the full role list and call sites. In short: the LLM (Groq, free-tier, OpenAI-compatible API) is called exclusively from the browser, exclusively on-demand, and never sees or influences the offline pipeline's numbers — it explains and contextualizes forecasts the tribunal already produced, playing the roles of disagreement narrator, causal summarizer, ranked-risk identifier, and (Battle View only) allocation comparator.

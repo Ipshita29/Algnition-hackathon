@@ -64,6 +64,14 @@ Google, Bing, and Meta each export a genuinely different raw schema (different c
 python src/train.py --data-dir ./data --out ./pickle/model.pkl
 ```
 
+## Backtest (accuracy validation)
+
+```bash
+python src/backtest.py --data-dir ./data --holdout-days 30 --output backtest_results.csv
+```
+
+Holds out the last N days, trains fresh on everything before that, and reports real MAE/RMSE and P10-P90 coverage against what actually happened - vs. every other check in this repo, which only verifies internal consistency (no NaNs, right shape). Results and honest caveats: `docs/TECHNICAL_DOC.md`. Not part of `run.sh`.
+
 ## Tests
 
 ```bash
