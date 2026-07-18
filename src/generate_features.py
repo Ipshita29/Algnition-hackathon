@@ -228,6 +228,13 @@ def load_channel_csv(path):
 
     df["channel"] = infer_channel(path)
     df["date"] = pd.to_datetime(df["date"])
+
+    # Defensive: the committed dataset has no NaNs in these columns (only in
+    # unused budget columns), but the held-out test set is unknown - a NaN
+    # metric cell must not flow into the models as NaN.
+    for col in ["spend", "revenue", "impressions", "clicks", "conversions"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
     return df[
         ["date", "channel", "campaign_name", "campaign_type", "spend", "revenue", "impressions", "clicks", "conversions"]
     ]
